@@ -38,7 +38,7 @@ On macOS, `make` comes with Xcode Command Line Tools (`xcode-select --install`).
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Sai-Sandilya/chatbot.git
+git clone https://github.com/varunguptakh/chatbot.git
 cd chatbot
 ```
 
