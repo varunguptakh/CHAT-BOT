@@ -2,13 +2,173 @@
 
 A landing-page sales assistant that answers technical and compliance questions, qualifies enterprise leads, and issues sandbox credentials — with a **safety-first** credentialing guardrail that refuses public webmail.
 
-The default runtime is **fully offline** (Ollama + `qwen2.5:7b-instruct` + `qwen3:14b` + `nomic-embed-text`). Flip `LLM_PROVIDER=openai` to use `gpt-4o-mini` / `gpt-4o` if you have an API key.
+Each chat turn shows **two answers**:
 
-**Documentation**
+1. **RAG + tools** — LangGraph agent searches [`data/securegate_2fa_knowledge.pdf`](data/securegate_2fa_knowledge.pdf), then Qwen 7B writes from those passages (and can call CRM / sandbox tools).
+2. **Offline Qwen 7B** — same model, no PDF, no tools.
+3. A **judge (Qwen 14B)** scores both and marks a winner.
 
-- **[DOCUMENTATION.md](DOCUMENTATION.md)** — full project guide (architecture, every file, chat lifecycle, API, evals, how to extend)
-- **[EVAL.md](EVAL.md)** — evaluation story: datasets, traces, before/after, failures, production plan
-- **[README.md](README.md)** — this page: quickstart and topology
+Default runtime is **fully offline** via [Ollama](https://ollama.com). You can switch to OpenAI with one env var.
+
+**Docs**
+
+| File | What it is |
+|---|---|
+| [DOCUMENTATION.md](DOCUMENTATION.md) | Full architecture, API, files, troubleshooting |
+| [EVAL.md](EVAL.md) | Datasets, traces, before/after scores, known failures |
+
+---
+
+## Installation (GitHub)
+
+### Prerequisites
+
+Install these first:
+
+| Tool | Version | Why |
+|---|---|---|
+| [Git](https://git-scm.com/downloads) | any recent | clone this repo |
+| [Python](https://www.python.org/downloads/) | 3.10+ (3.12/3.14 work) | API, LangGraph, evals |
+| [Node.js](https://nodejs.org/) | 18+ (includes `npm`) | React chat widget |
+| [Ollama](https://ollama.com/download) | latest | local Qwen 7B / 14B (skip if you only use OpenAI) |
+| `make` | macOS/Linux built-in; Windows: Git Bash or WSL | `make setup` / `make run` |
+
+On macOS, `make` comes with Xcode Command Line Tools (`xcode-select --install`).
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Sai-Sandilya/chatbot.git
+cd chatbot
+```
+
+### 2. Create your env file
+
+```bash
+cp .env.example .env
+```
+
+Leave `LLM_PROVIDER=ollama` for the local path. You do **not** need an OpenAI key.
+
+### 3. Install Python deps, models, and the UI
+
+From the repo root:
+
+```bash
+make setup
+```
+
+That command:
+
+1. Creates `.venv` and installs [requirements.txt](requirements.txt)
+2. Pulls Ollama models: `qwen2.5:7b-instruct` (agent), `qwen3:14b` (judge), `nomic-embed-text` (PDF embeddings)
+3. Runs `npm install` in `frontend/`
+
+Disk for models is roughly **7B ~5 GB + 14B ~9 GB + embed ~0.3 GB**. First pull can take several minutes.
+
+**If you do not have `make`**, run the same steps by hand:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+ollama pull qwen2.5:7b-instruct
+ollama pull qwen3:14b
+ollama pull nomic-embed-text
+cd frontend && npm install && cd ..
+cp -n .env.example .env
+```
+
+### 4. Start Ollama
+
+Keep this running in another terminal (or as a background service):
+
+```bash
+ollama serve
+```
+
+Confirm models:
+
+```bash
+ollama list
+```
+
+### 5. Run the app
+
+```bash
+make run
+```
+
+- React UI: [http://127.0.0.1:5173](http://127.0.0.1:5173)
+- API: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health) (if 8000 is busy, the API binds **8001** and Vite still proxies `/api`)
+
+Open the UI → **Talk to Aegis**. A compare turn (RAG + offline + judge) often takes **30–90 seconds** on a laptop GPU.
+
+Without `make`:
+
+```bash
+source .venv/bin/activate
+python server.py &
+cd frontend && npm run dev
+```
+
+### 6. Optional: OpenAI instead of Ollama
+
+In `.env`:
+
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+```
+
+If the key is omitted, the process prompts with a hidden `getpass` input. Then `make run` again. Agent = `gpt-4o-mini`, judge = `gpt-4o`.
+
+---
+
+## Verify the install
+
+```bash
+make test              # tool + guardrail unit tests (no 14B judge)
+make pdf               # rebuild the knowledge PDF from data/qa_pairs.json
+```
+
+Ask in the widget:
+
+- `Are you HIPAA compliant? Do you sign a BAA?`
+- `Which TOTP algorithm and time-step do you use?`
+- `Can you send sandbox credentials to me@gmail.com?` (must be rejected)
+
+---
+
+## Useful commands
+
+| Command | What it does |
+|---|---|
+| `make run` | API + React UI together |
+| `make api` / `make ui` | Backend or frontend only |
+| `make chat` | Terminal REPL (RAG graph only, no dual judge) |
+| `make test` | Deterministic unit tests |
+| `make pdf` | Build `data/securegate_2fa_knowledge.pdf` |
+| `make evals` | Full evaluation suite + LLM judge |
+| `make evals-pdf` | RAG vs closed-book scored against gold answers |
+| `make evals-adversarial` | Jailbreak cases only |
+
+Do **not** run `make evals` at the same time as `make run` on a 16 GB GPU (7B and 14B will fight for VRAM).
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `Cannot reach Ollama` | Start `ollama serve`; check `OLLAMA_BASE_URL` in `.env` |
+| Missing models | `ollama pull qwen2.5:7b-instruct && ollama pull qwen3:14b && ollama pull nomic-embed-text` |
+| UI says backend offline | API is not up; wait for `Uvicorn running` or check `.api_url` |
+| Port 8000 in use | Normal — API moves to 8001 automatically |
+| Empty / hung replies | Unload extra models: `ollama stop qwen3:14b`; don’t run evals + chat together |
+| `make: command not found` | Use the manual commands in step 3, or install make / use WSL on Windows |
+
+More detail: [DOCUMENTATION.md](DOCUMENTATION.md).
 
 ---
 
@@ -56,33 +216,6 @@ State is a `TypedDict` with three channels:
 | `messages` | `add_messages` | Conversation history for the LLM |
 | `trajectory` | `operator.add` | Ordered node / tool names for this session (eval traces) |
 | `guardrail_flags` | `operator.add` | Injection / leak / fabricated-token detections |
-
----
-
-## Quickstart
-
-Requires Python 3.10+, Node 18+, and (for the default offline path) [Ollama](https://ollama.com).
-
-```bash
-git clone <this-repo> && cd chatbot
-make setup          # venv + pinned deps + Ollama models + npm install
-make run            # FastAPI :8000  +  React :5173
-```
-
-Open http://localhost:5173 and click **Talk to Aegis**.
-
-| Command | What it does |
-|---|---|
-| `make run` | API + React UI together |
-| `make api` / `make ui` | Run each side independently |
-| `make chat` | Terminal REPL against the same graph |
-| `make evals` | Full evaluation suite + LLM judge |
-| `make evals-adversarial` | Only the prompt-injection cases |
-| `make test` | Deterministic unit tests (no LLM) |
-| `make pdf` | Build `data/securegate_2fa_knowledge.pdf` from the Q&A JSON |
-| `make evals-pdf` | RAG from that PDF, answer with Qwen, score vs gold, pick RAG vs closed-book |
-
-Copy `.env.example` to `.env` to change models. If `LLM_PROVIDER=openai` and `OPENAI_API_KEY` is unset, the process **prompts securely via `getpass.getpass`** — no `export` required.
 
 ---
 
@@ -156,7 +289,7 @@ Do not run `make evals-pdf` at the same time as `make run` on a 16 GB GPU (the j
 ## Known limits
 
 - Conversation state lives in a process-local `MemorySaver`. Restarting the API drops sessions; scale-out needs a Postgres / Redis checkpointer.
-- The knowledge corpus is compiled into `agent.py`. There is no document-admin UI and no freshness pipeline.
+- The knowledge corpus is `data/securegate_2fa_knowledge.pdf` (built from `data/qa_pairs.json`). There is no document-admin UI.
 - Injection detection is pattern-based. Novel jailbreaks that do not match `INJECTION_PATTERNS` still hit the model (and then the output canary / token redaction).
 - Sandbox keys are random hex in a process-local set. They are **not** provisioned against a real IdP. Treat them as demo artefacts.
 - The judge is another LLM. It can be wrong; that is why the deterministic layer is the one that can fail a release on its own.
