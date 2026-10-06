@@ -49,7 +49,18 @@ function ScorePill({ score, max = 5 }) {
   );
 }
 
-function AnswerCard({ label, hint, text, score, winner }) {
+function GroundingBadge({ grounding }) {
+  if (!grounding) return null;
+  if (!grounding.grounded) return <span className="pill pill-red">NOT FROM PDF</span>;
+  if (grounding.source === "tools") return <span className="pill pill-blue">TOOL OUTPUT</span>;
+  return (
+    <span className="pill pill-blue">
+      PDF p.{grounding.pages?.join(", ") || "?"}
+    </span>
+  );
+}
+
+function AnswerCard({ label, hint, text, score, winner, grounding }) {
   return (
     <div className={`answer-card ${winner ? "answer-winner" : ""}`}>
       <div className="answer-card-head">
@@ -58,6 +69,7 @@ function AnswerCard({ label, hint, text, score, winner }) {
           <div className="answer-hint">{hint}</div>
         </div>
         <div className="answer-card-meta">
+          <GroundingBadge grounding={grounding} />
           <ScorePill score={score} />
           {winner && <span className="pill pill-green">JUDGE PICK</span>}
         </div>
@@ -129,10 +141,11 @@ export default function Message({ msg }) {
             <div className="dual-grid">
               <AnswerCard
                 label="RAG + tools"
-                hint="FAISS / PDF retrieval, CRM, sandbox guardrail"
+                hint={judge?.grounding?.note || "Answers only from the 2FA PDF, CRM, sandbox guardrail"}
                 text={msg.ragAnswer}
                 score={judge?.rag_score}
-                winner={judge?.winner === "rag" || judge?.winner === "tie"}
+                winner={judge?.winner === "rag" || (judge?.winner === "tie" && judge?.rag_grounded !== false)}
+                grounding={judge?.grounding}
               />
               <AnswerCard
                 label="Offline Qwen"

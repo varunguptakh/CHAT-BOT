@@ -43,7 +43,9 @@ Tricky examples (intentional): Gmail sandbox, mixed-case Outlook, “gmail.com i
 
 Closed-book sounded fluent and wrong (“OTP usually 30–90 seconds”, “the product *should* be HIPAA compliant”). That is the failure we wanted the judge to catch.
 
-**v3 (this change).** Chat widget shows both candidates + judge. Prompt updated: do not ask for headcount unless the user asked about tier. Dual-answer path is the online evaluation.
+**v3.** Chat widget shows both candidates + judge. Prompt updated: do not ask for headcount unless the user asked about tier. Dual-answer path is the online evaluation.
+
+**v4 (PDF grounding gate).** Found in live use: "2+2=4" gave RAG **5/5**. The agent never touched the PDF and answered from the model's own knowledge; the judge only scored correctness. Fix: a deterministic check (`compare.check_grounding`) requires PDF passages or tool output from the same turn, plus ≥35% key-term overlap between answer and passages. Failing answers are replaced with a "not covered by the PDF" notice and scored 1; the judge also returns `rag_grounded`. After: "2+2=4" → RAG **1/5** (`NOT FROM PDF`), offline 5/5, offline wins. Real PDF answers (HIPAA, RFC 6238, SOC 2) score 71–100% overlap, well above the cutoff. Unit tests in `test_tools.py` (`GroundingTests`).
 
 ## How to inspect traces
 

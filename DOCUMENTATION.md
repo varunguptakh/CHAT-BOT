@@ -142,12 +142,24 @@ On small GPUs the 7B model is unloaded before the 14B judge is loaded so they do
 
 - the question
 - tool evidence from the RAG turn
+- the result of the PDF grounding check (below)
 - both answers
 - the RAG trajectory
 
-It must return JSON: `rag_score`, `offline_score` (1–5), `winner` (`rag` | `offline` | `tie`), `why_winner`, `reasoning_steps`.
+It must return JSON: `rag_grounded`, `rag_score`, `offline_score` (1–5), `winner` (`rag` | `offline` | `tie`), `why_winner`, `reasoning_steps`.
 
-The API’s `reply` field is the **winner’s text** (RAG on a tie). The UI still **shows both cards**.
+**PDF grounding check (`compare.check_grounding`).** The RAG answer must come from the 2FA PDF (or CRM / sandbox tool output) of the same turn. Before judging, code checks:
+
+| Situation | Result |
+|---|---|
+| CRM qualifier or sandbox issuer was called | grounded (source `tools`) |
+| No PDF passages were retrieved (e.g. "2+2=4") | **not grounded** |
+| Passages retrieved, but fewer than 35% of the answer's key terms appear in them (`GROUNDING_MIN_OVERLAP`) | **not grounded** |
+| Otherwise | grounded (source `pdf`, with page numbers) |
+
+When the check fails, the RAG card shows a "not covered by the PDF" notice instead of the model's text, `rag_score` is forced to 1, and the offline answer wins. The judge can also mark `rag_grounded=false` when the answer states facts the passages don't contain; that caps `rag_score` at 1 too.
+
+The API’s `reply` field is the **winner’s text** (RAG on a tie). The UI still **shows both cards**, with a `PDF p.N`, `TOOL OUTPUT` or `NOT FROM PDF` badge on the RAG card.
 
 ### 5.5 React widget
 
@@ -256,8 +268,10 @@ The regex guard has **false positives**. That is an accepted tradeoff on a publi
     "winner": "rag",
     "rag_score": 4,
     "offline_score": 2,
+    "rag_grounded": true,
     "reasoning_steps": ["..."],
-    "why_winner": "..."
+    "why_winner": "...",
+    "grounding": { "grounded": true, "source": "pdf", "overlap": 0.8, "pages": ["2", "3"], "note": "..." }
   },
   "compared": true,
   "trajectory": ["input_guard:pass", "agent:call:knowledge_retrieval_rag", "..."],

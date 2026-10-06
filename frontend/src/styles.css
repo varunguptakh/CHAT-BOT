@@ -120,6 +120,8 @@ a { color: inherit; text-decoration: none; }
 .credential-meta { font-size: 11.5px; color: #3f6b4f; }
 .pill { font-size: 10.5px; padding: 2px 8px; border-radius: 999px; }
 .pill-green { background: var(--green); color: white; }
+.pill-red { background: #dc2626; color: white; }
+.pill-blue { background: #e0e7ff; color: #3730a3; }
 
 .suggestions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .suggestions button { text-align: left; background: white; border: 1px solid #dcdff0; color: var(--brand); padding: 9px 12px; border-radius: 12px; font-size: 13px; font-weight: 500; transition: background .15s; }

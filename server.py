@@ -54,12 +54,22 @@ class ToolCall(BaseModel):
     output: str | None
 
 
+class GroundingView(BaseModel):
+    grounded: bool
+    source: str
+    overlap: float | None = None
+    pages: list[str] = []
+    note: str = ""
+
+
 class JudgeView(BaseModel):
     winner: str
     rag_score: int
     offline_score: int
+    rag_grounded: bool = True
     reasoning_steps: list[str]
     why_winner: str
+    grounding: GroundingView | None = None
 
 
 class ChatResponse(BaseModel):

@@ -7,6 +7,7 @@ the traces, and why the judge picked a winner.
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Literal
 
@@ -20,12 +21,69 @@ You do NOT have tools, documents, or a retrieval index. Do not invent sandbox AP
 If you are not sure of vendor-specific facts (certifications, SLAs, exact algorithms), say so.
 Be concise."""
 
+PDF_TOOL = "knowledge_retrieval_rag"
+ACTION_TOOLS = {"crm_lead_qualifier", "sandbox_token_issuer"}
+GROUNDING_MIN_OVERLAP = float(os.getenv("GROUNDING_MIN_OVERLAP", "0.35"))
+NOT_IN_PDF_ANSWER = (
+    "This question isn't covered by the SecureGate 2FA knowledge base PDF, so the RAG agent has no "
+    "grounded answer. I can help with 2FA, TOTP, compliance (SOC 2, HIPAA, GDPR), plans, integrations, "
+    "or a sandbox key."
+)
+
+_WORD_RE = re.compile(r"[a-z0-9][a-z0-9\-]{3,}")
+_STOPWORDS = {
+    "about", "also", "and", "answer", "anything", "assist", "assistance", "based", "been", "can", "could",
+    "does", "feel", "free", "from", "have", "help", "here", "into", "just", "know", "like", "more", "need",
+    "other", "please", "question", "questions", "related", "should", "some", "than", "that", "their",
+    "them", "then", "there", "these", "they", "this", "those", "through", "using", "very", "want", "were",
+    "what", "when", "where", "which", "while", "will", "with", "would", "your", "yours", "securegate",
+    "correct", "equals", "sure", "else",
+}
+
+
+def _stems(text: str) -> set[str]:
+    text = re.sub(r"\[[^\]]*\]", " ", text.lower())
+    return {w[:6] for w in _WORD_RE.findall(text) if w not in _STOPWORDS}
+
+
+def check_grounding(rag: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic check that the RAG answer is backed by PDF passages or tool output from this turn."""
+    calls = rag.get("tool_calls") or []
+    if any(c["name"] in ACTION_TOOLS for c in calls):
+        return {"grounded": True, "source": "tools", "overlap": None, "pages": [],
+                "note": "Answer is based on CRM / sandbox tool output from this turn."}
+
+    passages = [
+        str(c.get("output") or "")
+        for c in calls
+        if c["name"] == PDF_TOOL and not str(c.get("output") or "").startswith(("ERROR", "NO_RESULTS"))
+    ]
+    if not passages:
+        return {"grounded": False, "source": "none", "overlap": 0.0, "pages": [],
+                "note": "The RAG agent did not retrieve anything from the 2FA PDF for this question."}
+
+    joined = "\n".join(passages)
+    pages = sorted(set(re.findall(r"#page-(\d+)", joined)), key=int)
+    answer = _stems(rag.get("reply") or "")
+    overlap = len(answer & _stems(joined)) / len(answer) if answer else 0.0
+    grounded = overlap >= GROUNDING_MIN_OVERLAP
+    note = (
+        f"{overlap:.0%} of the answer's key terms appear in the retrieved PDF passages (pages {', '.join(pages)})."
+        if grounded
+        else f"Only {overlap:.0%} of the answer's key terms appear in the retrieved PDF passages; "
+        "the answer is not supported by the PDF."
+    )
+    return {"grounded": grounded, "source": "pdf", "overlap": round(overlap, 2), "pages": pages, "note": note}
+
 
 class DualVerdict(BaseModel):
     """Structured score from the judge agent."""
 
     reasoning_steps: list[str] = Field(
         description="Compare the two answers against the RAG tool evidence. Note invented facts, missing facts, and safety issues."
+    )
+    rag_grounded: bool = Field(
+        description="True only if every factual claim in the RAG answer is supported by the TOOL EVIDENCE."
     )
     rag_score: int = Field(ge=1, le=5, description="Quality of the RAG/tool agent answer. 1=bad, 5=excellent.")
     offline_score: int = Field(ge=1, le=5, description="Quality of the offline (no-tools) answer. 1=bad, 5=excellent.")
@@ -36,12 +94,16 @@ class DualVerdict(BaseModel):
 
     @model_validator(mode="after")
     def _consistent_winner(self):
+        if not self.rag_grounded:
+            self.rag_score = 1
         if self.winner == "rag" and self.rag_score < self.offline_score:
             self.winner = "offline"
         elif self.winner == "offline" and self.offline_score < self.rag_score:
             self.winner = "rag"
         elif self.rag_score == self.offline_score and self.winner != "tie":
             self.winner = "tie"
+        elif self.winner == "tie" and self.rag_score != self.offline_score:
+            self.winner = "rag" if self.rag_score > self.offline_score else "offline"
         return self
 
 
@@ -52,6 +114,10 @@ RAG ANSWER was produced by an agent that may have called tools (PDF/FAISS retrie
 OFFLINE ANSWER was produced by the same model family with no tools and no retrieved documents.
 
 Scoring rules (5 = excellent, 1 = unusable):
+- The RAG answer must come ONLY from the TOOL EVIDENCE (SecureGate 2FA PDF passages, CRM or sandbox output). \
+If there is no evidence, or the RAG answer states anything the evidence does not contain (including general \
+knowledge such as arithmetic or trivia), set rag_grounded=false and rag_score=1, even if the statement is true.
+- The PDF GROUNDING CHECK line is a deterministic check computed by code; treat a failed check as rag_grounded=false.
 - Groundedness: facts about SecureGate (RFC 6238, 30-second step, HIPAA BAA on Enterprise, SOC 2 Type II, sandbox domain policy) must match the TOOL EVIDENCE when evidence exists.
 - Penalize invented certifications, invented API keys, or hedging that refuses to use evidence the RAG agent already retrieved.
 - Prefer the RAG answer when it is faithful to tool output, even if the offline answer is more fluent.
@@ -64,6 +130,8 @@ JUDGE_TEMPLATE = """USER QUESTION:
 
 TOOL EVIDENCE (from the RAG agent this turn):
 {evidence}
+
+PDF GROUNDING CHECK: {grounding}
 
 RAG ANSWER (tools + retrieval):
 {rag}
@@ -98,7 +166,7 @@ def _evidence(tool_calls: list[dict]) -> str:
     if not tool_calls:
         return "(no tools were called)"
     return "\n".join(
-        f"- {c['name']}({json.dumps(c.get('args', {}))}) -> {str(c.get('output'))[:900]}" for c in tool_calls
+        f"- {c['name']}({json.dumps(c.get('args', {}))}) -> {str(c.get('output'))[:2400]}" for c in tool_calls
     )
 
 
@@ -130,11 +198,12 @@ def _from_text(text: str) -> DualVerdict | None:
         return None
 
 
-def judge_pair(question: str, rag: dict[str, Any], offline_answer: str) -> DualVerdict:
+def judge_pair(question: str, rag: dict[str, Any], offline_answer: str, grounding: dict[str, Any]) -> DualVerdict:
     llm = agent.get_chat_model("judge").with_structured_output(DualVerdict, method="json_schema", include_raw=True)
     prompt = JUDGE_TEMPLATE.format(
         question=question,
         evidence=_evidence(rag.get("tool_calls") or []),
+        grounding=("PASSED. " if grounding["grounded"] else "FAILED. ") + grounding["note"],
         rag=rag.get("reply") or "",
         offline=offline_answer,
         trajectory=" > ".join(rag.get("trajectory") or []),
@@ -149,6 +218,7 @@ def judge_pair(question: str, rag: dict[str, Any], offline_answer: str) -> DualV
             last_exc = exc
     return DualVerdict(
         reasoning_steps=[f"Judge failed to produce a structured verdict: {last_exc!r}"],
+        rag_grounded=grounding["grounded"],
         rag_score=1,
         offline_score=1,
         winner="tie",
@@ -177,22 +247,34 @@ def run_compared_turn(message: str, thread_id: str | None = None) -> dict[str, A
             "compared": False,
         }
 
+    grounding = check_grounding(rag)
+    rag_answer = rag["reply"] if grounding["grounded"] else NOT_IN_PDF_ANSWER
+
     if agent.LLM_PROVIDER == "ollama":
         agent.release_ollama_model(agent.AGENT_MODEL)
     offline_answer = generate_offline_answer(message)
     if agent.LLM_PROVIDER == "ollama":
         agent.release_ollama_model(agent.AGENT_MODEL)
 
-    verdict = judge_pair(message, rag, offline_answer)
+    verdict = judge_pair(message, rag, offline_answer, grounding)
     if agent.LLM_PROVIDER == "ollama":
         agent.release_ollama_model(agent.JUDGE_MODEL)
 
-    winner_text = rag["reply"] if verdict.winner != "offline" else offline_answer
+    if not grounding["grounded"]:
+        verdict = DualVerdict.model_validate({
+            **verdict.model_dump(),
+            "rag_grounded": False,
+            "winner": "offline",
+            "why_winner": f"RAG answer rejected: {grounding['note']} {verdict.why_winner}",
+        })
+
+    winner_text = rag_answer if verdict.winner != "offline" else offline_answer
     return {
         **rag,
         "reply": winner_text,
-        "rag_answer": rag["reply"],
+        "rag_answer": rag_answer,
+        "rag_raw_answer": rag["reply"],
         "offline_answer": offline_answer,
-        "judge": verdict.model_dump(),
+        "judge": {**verdict.model_dump(), "grounding": grounding},
         "compared": True,
     }

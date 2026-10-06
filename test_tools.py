@@ -113,5 +113,59 @@ class GuardrailPatternTests(unittest.TestCase):
         self.assertFalse(any(p.search(q) for p in agent.INJECTION_PATTERNS))
 
 
+class GroundingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        agent.ensure_credentials()
+        query = "HIPAA BAA Enterprise plan"
+        cls.hipaa_call = {
+            "name": "knowledge_retrieval_rag",
+            "args": {"query": query},
+            "output": agent.knowledge_retrieval_rag.invoke({"query": query}),
+        }
+
+    def test_off_topic_without_retrieval_is_ungrounded(self):
+        import compare
+
+        g = compare.check_grounding({"reply": "That's correct! 2+2 equals 4.", "tool_calls": []})
+        self.assertFalse(g["grounded"])
+        self.assertEqual(g["source"], "none")
+
+    def test_answer_from_pdf_is_grounded(self):
+        import compare
+
+        reply = (
+            "Yes. SecureGate signs a HIPAA Business Associate Agreement (BAA) for covered entities "
+            "on the Enterprise plan [securegate_2fa_knowledge.pdf#page-2]."
+        )
+        g = compare.check_grounding({"reply": reply, "tool_calls": [self.hipaa_call]})
+        self.assertTrue(g["grounded"], g)
+        self.assertTrue(g["pages"])
+
+    def test_retrieval_but_unrelated_answer_is_ungrounded(self):
+        import compare
+
+        reply = "Paris is the capital of France and the Eiffel Tower was finished in 1889."
+        g = compare.check_grounding({"reply": reply, "tool_calls": [self.hipaa_call]})
+        self.assertFalse(g["grounded"], g)
+
+    def test_tool_output_counts_as_grounded(self):
+        import compare
+
+        call = {"name": "crm_lead_qualifier", "args": {}, "output": '{"tier": "ENTERPRISE"}'}
+        g = compare.check_grounding({"reply": "You are on the ENTERPRISE tier.", "tool_calls": [call]})
+        self.assertTrue(g["grounded"])
+
+    def test_ungrounded_verdict_caps_rag_score(self):
+        import compare
+
+        v = compare.DualVerdict(
+            reasoning_steps=["x"], rag_grounded=False, rag_score=5, offline_score=5,
+            winner="tie", why_winner="x",
+        )
+        self.assertEqual(v.rag_score, 1)
+        self.assertEqual(v.winner, "offline")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
