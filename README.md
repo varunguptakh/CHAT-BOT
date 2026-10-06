@@ -306,6 +306,9 @@ Do not run `make evals-pdf` at the same time as `make run` on a 16 GB GPU (the j
 5. **Human review sample.** 1% of production threads (PII-redacted) into a queue labelled by trajectory prefix. Use disagreements with the judge to grow the hardcoded eval set.
 
 ---
+## Image Reference
+<img width="688" height="1022" alt="image" src="https://github.com/user-attachments/assets/add3b378-b683-4e8a-8f73-76ff0376d37e" />
+
 
 ## Project layout
 
