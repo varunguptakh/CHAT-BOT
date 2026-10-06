@@ -1,0 +1,23 @@
+# Core LangChain 0.3 / LangGraph stack
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-community==0.3.31
+langchain-openai==0.3.35
+langchain-ollama==0.3.10
+langgraph==0.6.11
+
+# Data + validation
+pydantic==2.13.5
+faiss-cpu==1.15.1
+
+# HTTP API for the React widget
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+
+# PDF knowledge corpus (write + read for RAG)
+fpdf2==2.8.4
+pypdf==6.1.3
+
+# CLI eval UX + env loading
+rich==15.0.0
+python-dotenv==1.2.4

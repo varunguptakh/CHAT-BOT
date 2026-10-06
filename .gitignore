@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.eval_report.json
+eval_report.json
+pdf_rag_report.json
+.api_url
+frontend/node_modules/
+frontend/dist/
+.DS_Store

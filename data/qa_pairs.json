@@ -1,0 +1,102 @@
+{
+  "title": "SecureGate 2FA Knowledge Base",
+  "subtitle": "Technical specifications, compliance, and frequently asked questions",
+  "pairs": [
+    {
+      "id": "what-is-2fa",
+      "topic": "overview",
+      "pdf_question": "What is SecureGate two-factor authentication?",
+      "eval_question": "In plain language, what does your 2FA product actually do for a login?",
+      "gold_answer": "SecureGate 2FA is a second authentication factor on top of a password or SSO. After the primary factor succeeds, the user proves possession of a registered authenticator by entering a time-based one-time password (TOTP). The verifier accepts the code only inside a 30-second time-step window, then records it so it cannot be replayed.",
+      "must_contain": ["TOTP", "30", "second"]
+    },
+    {
+      "id": "totp-rfc6238",
+      "topic": "totp",
+      "pdf_question": "Which OTP algorithm and time-step does SecureGate implement?",
+      "eval_question": "What standard do your one-time passwords follow, and how long is each code valid?",
+      "gold_answer": "SecureGate implements TOTP as defined in RFC 6238, which extends HOTP from RFC 4226. Codes are HMAC(K, T) where T = floor((UnixTime - T0) / X), T0 = 0, and the time-step X is 30 seconds. Default codes are 6 digits (8 digits configurable). HMAC-SHA1 is the default for authenticator-app compatibility; HMAC-SHA256 and HMAC-SHA512 are available on Enterprise.",
+      "must_contain": ["RFC 6238", "TOTP", "30"]
+    },
+    {
+      "id": "clock-drift",
+      "topic": "totp",
+      "pdf_question": "How does SecureGate handle authenticator clock drift and replayed codes?",
+      "eval_question": "If a user's phone clock is a bit off, will TOTP still work, and can the same code be used twice?",
+      "gold_answer": "The verifier accepts a window of +/-1 time-step (previous, current, and next 30-second step) to tolerate device clock skew. Each accepted code is recorded and cannot be replayed inside its validity window. Five consecutive invalid codes trigger exponential back-off and lockout.",
+      "must_contain": ["+/-1", "replay", "30"]
+    },
+    {
+      "id": "secret-storage",
+      "topic": "security",
+      "pdf_question": "How are TOTP shared secrets generated, provisioned, and stored?",
+      "eval_question": "Where do the authenticator secrets live, and can an API ever return them later?",
+      "gold_answer": "Shared secrets are generated with a CSPRNG (160-bit minimum), provisioned via otpauth:// QR codes, encrypted at rest with AES-256-GCM using per-tenant keys in a FIPS 140-2 Level 3 HSM, and never returned by any API after enrollment. All traffic uses TLS 1.2+.",
+      "must_contain": ["HSM", "AES-256", "otpauth"]
+    },
+    {
+      "id": "hipaa",
+      "topic": "compliance",
+      "pdf_question": "Is SecureGate HIPAA compliant, and will you sign a BAA?",
+      "eval_question": "We're a healthcare provider. Are you HIPAA compliant and do you sign a Business Associate Agreement?",
+      "gold_answer": "SecureGate supports HIPAA-regulated customers (covered entities and business associates). A Business Associate Agreement (BAA) is signed on the Enterprise plan. Authentication logs that may contain ePHI are encrypted at rest and in transit, retained per customer policy, and access is restricted by role with full audit trails.",
+      "must_contain": ["HIPAA", "BAA", "Enterprise"]
+    },
+    {
+      "id": "soc2",
+      "topic": "compliance",
+      "pdf_question": "Do you have a SOC 2 report, which type, and how often is it audited?",
+      "eval_question": "What SOC 2 attestation do you hold and how frequently is the audit performed?",
+      "gold_answer": "SecureGate holds a SOC 2 Type II attestation covering the Security, Availability, and Confidentiality Trust Services Criteria. The audit is performed annually by an independent AICPA-accredited CPA firm over a 12-month observation period. The latest report is available to prospects under NDA through the Trust Center.",
+      "must_contain": ["SOC 2 Type II", "annually", "NDA"]
+    },
+    {
+      "id": "gdpr",
+      "topic": "compliance",
+      "pdf_question": "How does SecureGate handle GDPR and EU data residency?",
+      "eval_question": "Our users are in the EU. How do you handle GDPR and where can data live?",
+      "gold_answer": "SecureGate acts as a data processor and offers a Data Processing Agreement (DPA) with EU Standard Contractual Clauses. EU customers can pin data residency to the Frankfurt (eu-central) region. Data-subject access and erasure requests are fulfilled within 30 days, and a public sub-processor list is maintained.",
+      "must_contain": ["DPA", "Frankfurt", "30 days"]
+    },
+    {
+      "id": "plans",
+      "topic": "sales",
+      "pdf_question": "What is the difference between MID-MARKET and ENTERPRISE plans?",
+      "eval_question": "We have 1,200 employees. Which plan would we land on and what extra do we get?",
+      "gold_answer": "MID-MARKET (under 500 employees) is self-serve with automated onboarding, SAML SSO, standard support, and a 99.9% uptime SLA. ENTERPRISE is 500 employees or more and includes a dedicated account executive and solutions engineer, HIPAA BAA, custom data residency, SCIM provisioning, 24/7 premium support, and a 99.99% uptime SLA. A company of 1,200 employees is ENTERPRISE.",
+      "must_contain": ["500", "ENTERPRISE", "99.99"]
+    },
+    {
+      "id": "sandbox",
+      "topic": "sales",
+      "pdf_question": "Who can receive sandbox API credentials, and what are the limits?",
+      "eval_question": "Can I get a sandbox key sent to a Gmail address, and how long do keys last?",
+      "gold_answer": "Sandbox API keys are issued only to verified corporate email domains. Public webmail (Gmail, Yahoo, Outlook, and similar) is not eligible. Keys are prefixed sbx_test_, expire after 14 days, are rate limited to 100 requests per minute, and cannot send real SMS or push notifications.",
+      "must_contain": ["corporate", "14 days", "gmail"]
+    },
+    {
+      "id": "integrations",
+      "topic": "integrations",
+      "pdf_question": "Which identity providers and APIs does SecureGate integrate with?",
+      "eval_question": "Do you work with Microsoft Entra ID and Keycloak, and are there SDKs?",
+      "gold_answer": "SecureGate integrates with Okta, Microsoft Entra ID (Azure AD), Auth0, Ping Identity, Keycloak, and any SAML 2.0 or OIDC identity provider. REST and gRPC APIs are available, with SDKs for Python, Node.js, Go, and Java. Webhooks report enrollment and verification events.",
+      "must_contain": ["Entra", "Keycloak", "SAML"]
+    },
+    {
+      "id": "sms-vs-totp",
+      "topic": "security",
+      "pdf_question": "Does SecureGate use SMS one-time codes as the primary 2FA factor?",
+      "eval_question": "Is SMS OTP your main second factor, or do you prefer authenticator apps?",
+      "gold_answer": "TOTP authenticator apps are the primary second factor. SMS one-time codes are not used in the sandbox and are discouraged in production because of SIM-swap risk. Enterprise customers who still require SMS must enable it explicitly and accept a lower assurance level than TOTP or WebAuthn.",
+      "must_contain": ["TOTP", "SMS", "SIM-swap"]
+    },
+    {
+      "id": "webauthn",
+      "topic": "security",
+      "pdf_question": "Do you support WebAuthn / FIDO2 as a phishing-resistant factor?",
+      "eval_question": "Can we use hardware security keys or passkeys instead of a six-digit code?",
+      "gold_answer": "Enterprise plans support WebAuthn / FIDO2 security keys and passkeys as a phishing-resistant factor alongside TOTP. Users may register multiple authenticators. TOTP remains the default for authenticator-app compatibility during rollout.",
+      "must_contain": ["WebAuthn", "FIDO2", "Enterprise"]
+    }
+  ]
+}
