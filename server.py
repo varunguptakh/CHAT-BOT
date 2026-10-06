@@ -37,11 +37,11 @@ app = FastAPI(title="SecureGate 2FA Sales Bot API", version="1.0.0", lifespan=li
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=agent.MAX_INPUT_CHARS)
