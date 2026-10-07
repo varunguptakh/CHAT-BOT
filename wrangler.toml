@@ -1,0 +1,10 @@
+name = "chat-bot"
+compatibility_date = "2026-10-01"
+
+# Serves the compiled static Vite frontend
+[assets]
+directory = "dist"
+
+# Forces Cloudflare to run npm build instead of Python scripts
+[build]
+command = "npm install && npm run build"
