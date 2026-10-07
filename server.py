@@ -1,4 +1,3 @@
-%%writefile /content/CHAT-BOT/server.py
 """
 HTTP API for the React chat widget (Fast Single-Model Mode).
 """
