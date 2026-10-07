@@ -1,10 +1,6 @@
+%%writefile /content/CHAT-BOT/server.py
 """
-HTTP API for the React chat widget.
-
-    POST /api/chat    {"message": "...", "session_id": "optional"} -> reply + per-turn trace
-    GET  /api/health  provider / model metadata
-
-Run: python server.py   (or `make api`)
+HTTP API for the React chat widget (Fast Single-Model Mode).
 """
 
 from __future__ import annotations
@@ -22,7 +18,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import agent
-import compare
 
 
 @asynccontextmanager
@@ -43,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=agent.MAX_INPUT_CHARS)
     session_id: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_\-]+$")
@@ -54,30 +50,12 @@ class ToolCall(BaseModel):
     output: str | None
 
 
-class GroundingView(BaseModel):
-    grounded: bool
-    source: str
-    overlap: float | None = None
-    pages: list[str] = []
-    note: str = ""
-
-
-class JudgeView(BaseModel):
-    winner: str
-    rag_score: int
-    offline_score: int
-    rag_grounded: bool = True
-    reasoning_steps: list[str]
-    why_winner: str
-    grounding: GroundingView | None = None
-
-
 class ChatResponse(BaseModel):
     session_id: str
     reply: str
     rag_answer: str
     offline_answer: str
-    judge: JudgeView | None = None
+    judge: dict | None = None
     compared: bool = False
     trajectory: list[str]
     tool_calls: list[ToolCall]
@@ -92,7 +70,7 @@ def health() -> dict:
         "provider": agent.LLM_PROVIDER,
         "agent_model": agent.AGENT_MODEL,
         "judge_model": agent.JUDGE_MODEL,
-        "compare_mode": True,
+        "compare_mode": False,
     }
 
 
@@ -101,20 +79,22 @@ def chat(req: ChatRequest) -> ChatResponse:
     session_id = req.session_id or uuid.uuid4().hex
     started = time.perf_counter()
     try:
-        result = compare.run_compared_turn(req.message.strip(), thread_id=session_id)
+        # Run single agent turn directly (Fast)
+        result = agent.run_turn(req.message.strip(), thread_id=session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Model backend error: {type(exc).__name__}") from exc
-    judge = result.get("judge")
+    
+    reply_text = result.get("reply", "")
     return ChatResponse(
         session_id=session_id,
-        reply=result["reply"],
-        rag_answer=result.get("rag_answer") or result["reply"],
-        offline_answer=result.get("offline_answer") or result["reply"],
-        judge=JudgeView(**judge) if judge else None,
-        compared=bool(result.get("compared")),
-        trajectory=result["trajectory"],
-        tool_calls=[ToolCall(**c) for c in result["tool_calls"]],
-        guardrail_flags=result["guardrail_flags"],
+        reply=reply_text,
+        rag_answer=reply_text,
+        offline_answer="",
+        judge=None,
+        compared=False,
+        trajectory=result.get("trajectory", []),
+        tool_calls=[ToolCall(**c) for c in result.get("tool_calls", [])],
+        guardrail_flags=result.get("guardrail_flags", []),
         latency_ms=int((time.perf_counter() - started) * 1000),
     )
 
@@ -134,7 +114,5 @@ if __name__ == "__main__":
                 continue
     else:
         raise SystemExit(f"No free TCP port in {preferred}–{preferred + 19} on {host}")
-    if port != preferred:
-        print(f"[warn] {host}:{preferred} is in use; serving on {host}:{port}")
     Path(".api_url").write_text(f"http://{host}:{port}")
     uvicorn.run(app, host=host, port=port)
